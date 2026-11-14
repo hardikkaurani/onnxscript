@@ -151,11 +151,75 @@ transpose_b_matmul_add_to_gemm_rule = TransBMatMulAddToGemm().rule()
 transpose_ab_matmul_add_to_gemm_rule = TransABMatMulAddToGemm().rule()
 
 
+class MatMulAddCommutativeToGemm(_MatMulAddToGemmBase):
+    """Replaces ``Add(c, MatMul(a, b))`` with ``Gemm(a, b, c)``."""
+
+    def pattern(self, op, input_a, input_b, input_c):
+        matmul = op.MatMul(input_a, input_b)
+        return op.Add(input_c, matmul)
+
+
+class TransAMatMulAddCommutativeToGemm(_MatMulAddToGemmBase):
+    """Replaces ``Add(c, MatMul(Transpose(a), b))`` with ``Gemm(a, b, c)``."""
+
+    trans_a: ClassVar = True
+
+    def pattern(self, op, input_a, input_b, input_c):
+        matmul = op.MatMul(
+            op.Transpose(input_a, _outputs=["trans_a_out"]),
+            input_b,
+        )
+        return op.Add(input_c, matmul)
+
+
+class TransBMatMulAddCommutativeToGemm(_MatMulAddToGemmBase):
+    """Replaces ``Add(c, MatMul(a, Transpose(b)))`` with ``Gemm(a, b, c)``."""
+
+    trans_b: ClassVar = True
+
+    def pattern(self, op, input_a, input_b, input_c):
+        matmul = op.MatMul(
+            input_a,
+            op.Transpose(input_b, _outputs=["trans_b_out"]),
+        )
+        return op.Add(input_c, matmul)
+
+
+class TransABMatMulAddCommutativeToGemm(_MatMulAddToGemmBase):
+    """Replaces ``Add(c, MatMul(Transpose(a), Transpose(b)))`` with ``Gemm(a, b, c)``."""
+
+    trans_a: ClassVar = True
+    trans_b: ClassVar = True
+
+    def pattern(self, op, input_a, input_b, input_c):
+        matmul = op.MatMul(
+            op.Transpose(input_a, _outputs=["trans_a_out"]),
+            op.Transpose(input_b, _outputs=["trans_b_out"]),
+        )
+        return op.Add(input_c, matmul)
+
+
+matmul_add_commutative_to_gemm_rule = MatMulAddCommutativeToGemm().rule()
+transpose_a_matmul_add_commutative_to_gemm_rule = (
+    TransAMatMulAddCommutativeToGemm().rule()
+)
+transpose_b_matmul_add_commutative_to_gemm_rule = (
+    TransBMatMulAddCommutativeToGemm().rule()
+)
+transpose_ab_matmul_add_commutative_to_gemm_rule = (
+    TransABMatMulAddCommutativeToGemm().rule()
+)
+
+
 rules = RewriteRuleSet(
     [
         transpose_ab_matmul_add_to_gemm_rule,
         transpose_a_matmul_add_to_gemm_rule,
         transpose_b_matmul_add_to_gemm_rule,
         matmul_add_to_gemm_rule,
+        transpose_ab_matmul_add_commutative_to_gemm_rule,
+        transpose_a_matmul_add_commutative_to_gemm_rule,
+        transpose_b_matmul_add_commutative_to_gemm_rule,
+        matmul_add_commutative_to_gemm_rule,
     ]
 )
