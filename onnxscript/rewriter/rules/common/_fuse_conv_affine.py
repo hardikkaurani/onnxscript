@@ -118,10 +118,15 @@ class AffineConvFusion(_ConvAffineFusionBase):
         offset_value = offset.const_value.numpy()
         w_value = w.const_value.numpy()
         b_value = b.const_value.numpy()
-        scaled_w_value = op.initializer(ir.tensor(w_value * scale_value), w.name + "_scaled")
+        scaled_w_value = op.initializer(
+            ir.tensor((w_value * scale_value).astype(w_value.dtype)),
+            w.name + "_scaled",
+        )
         axes = tuple(range(1, w_value.ndim))
         offset_bias = ir.tensor(
-            b_value + np.sum(w_value * offset_value, axis=axes, keepdims=False)
+            (
+                b_value + np.sum(w_value * offset_value, axis=axes, keepdims=False)
+            ).astype(b_value.dtype)
         )
         offset_bias = op.initializer(offset_bias, b.name + "_offset")
         conv_attributes = conv_out.producer().attributes
@@ -151,8 +156,13 @@ class ConvAffineFusion(_ConvAffineFusionBase):
         offset_value = offset.const_value.numpy()
         w_value = w.const_value.numpy()
         b_value = b.const_value.numpy()
-        scaled_w_weight = op.initializer(ir.tensor(w_value * scale_value), w.name + "_scaled")
-        offset_bias = ir.tensor(b_value * scale_value + offset_value)
+        scaled_w_weight = op.initializer(
+            ir.tensor((w_value * scale_value).astype(w_value.dtype)),
+            w.name + "_scaled",
+        )
+        offset_bias = ir.tensor(
+            (b_value * scale_value + offset_value).astype(b_value.dtype)
+        )
         offset_bias = op.initializer(offset_bias, b.name + "_offset")
         conv_attributes = conv_out.producer().attributes
         return op.Conv(x, scaled_w_weight, offset_bias, **conv_attributes)
