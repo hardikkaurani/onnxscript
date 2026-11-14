@@ -449,5 +449,91 @@ class TransposePermValidationTest(unittest.TestCase):
         self.assertIn("MatMul", [n.op_type for n in function])
 
 
+class MatMulAddCommutativeTest(unittest.TestCase):
+    def test_matmul_add_commutative_fused_to_gemm(self):
+        model_text = """
+            <ir_version: 8, opset_import: ["" : 17]>
+            test (float[4, 8] a, float[8, 16] b, float[16] c) => (float[4, 16] out)
+            {
+                mm = MatMul(a, b)
+                out = Add(c, mm)
+            }
+        """
+        original = ir.from_onnx_text(model_text)
+        model = ir.from_onnx_text(model_text)
+        count = _matmul_add_to_gemm.rules.apply_to_model(model)
+        self.assertEqual(count, 1)
+        self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
+        a_val = np.random.randn(4, 8).astype(np.float32)
+        b_val = np.random.randn(8, 16).astype(np.float32)
+        c_val = np.random.randn(16).astype(np.float32)
+        testing.assert_numerically_equal(original, model, (a_val, b_val, c_val))
+
+    def test_trans_a_matmul_add_commutative_fused_to_gemm(self):
+        model_text = """
+            <ir_version: 8, opset_import: ["" : 17]>
+            test (float[8, 4] a, float[8, 16] b, float[16] c) => (float[4, 16] out)
+            {
+                ta = Transpose(a)
+                mm = MatMul(ta, b)
+                out = Add(c, mm)
+            }
+        """
+        original = ir.from_onnx_text(model_text)
+        model = ir.from_onnx_text(model_text)
+        count = _matmul_add_to_gemm.rules.apply_to_model(model)
+        self.assertEqual(count, 1)
+        self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
+        self.assertEqual(model.graph[0].attributes.get_int("transA"), 1)
+        a_val = np.random.randn(8, 4).astype(np.float32)
+        b_val = np.random.randn(8, 16).astype(np.float32)
+        c_val = np.random.randn(16).astype(np.float32)
+        testing.assert_numerically_equal(original, model, (a_val, b_val, c_val))
+
+    def test_trans_b_matmul_add_commutative_fused_to_gemm(self):
+        model_text = """
+            <ir_version: 8, opset_import: ["" : 17]>
+            test (float[4, 8] a, float[16, 8] b, float[16] c) => (float[4, 16] out)
+            {
+                tb = Transpose(b)
+                mm = MatMul(a, tb)
+                out = Add(c, mm)
+            }
+        """
+        original = ir.from_onnx_text(model_text)
+        model = ir.from_onnx_text(model_text)
+        count = _matmul_add_to_gemm.rules.apply_to_model(model)
+        self.assertEqual(count, 1)
+        self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
+        self.assertEqual(model.graph[0].attributes.get_int("transB"), 1)
+        a_val = np.random.randn(4, 8).astype(np.float32)
+        b_val = np.random.randn(16, 8).astype(np.float32)
+        c_val = np.random.randn(16).astype(np.float32)
+        testing.assert_numerically_equal(original, model, (a_val, b_val, c_val))
+
+    def test_trans_ab_matmul_add_commutative_fused_to_gemm(self):
+        model_text = """
+            <ir_version: 8, opset_import: ["" : 17]>
+            test (float[8, 4] a, float[16, 8] b, float[16] c) => (float[4, 16] out)
+            {
+                ta = Transpose(a)
+                tb = Transpose(b)
+                mm = MatMul(ta, tb)
+                out = Add(c, mm)
+            }
+        """
+        original = ir.from_onnx_text(model_text)
+        model = ir.from_onnx_text(model_text)
+        count = _matmul_add_to_gemm.rules.apply_to_model(model)
+        self.assertEqual(count, 1)
+        self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
+        self.assertEqual(model.graph[0].attributes.get_int("transA"), 1)
+        self.assertEqual(model.graph[0].attributes.get_int("transB"), 1)
+        a_val = np.random.randn(8, 4).astype(np.float32)
+        b_val = np.random.randn(16, 8).astype(np.float32)
+        c_val = np.random.randn(16).astype(np.float32)
+        testing.assert_numerically_equal(original, model, (a_val, b_val, c_val))
+
+
 if __name__ == "__main__":
     unittest.main()
