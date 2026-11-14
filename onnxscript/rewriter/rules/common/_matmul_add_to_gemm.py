@@ -118,7 +118,10 @@ class TransBMatMulAddToGemm(_MatMulAddToGemmBase):
     trans_b: ClassVar = True
 
     def pattern(self, op, input_a, input_b, input_c):
-        matmul = op.MatMul(input_a, op.Transpose(input_b, perm=[1, 0]))
+        matmul = op.MatMul(
+            input_a,
+            op.Transpose(input_b, _outputs=["trans_b_out"]),
+        )
         return op.Add(matmul, input_c)
 
 
