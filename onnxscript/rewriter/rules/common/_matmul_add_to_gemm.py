@@ -47,7 +47,7 @@ class _MatMulAddToGemmBase(RewriteRuleClassBase, abc.ABC):
     trans_a: ClassVar = False
     trans_b: ClassVar = False
 
-    def rewrite(self, op, input_a, input_b, input_c):
+    def rewrite(self, op, input_a, input_b, input_c, **_):
         attributes = {}
         if self.trans_a:
             attributes["transA"] = 1
@@ -105,7 +105,10 @@ class TransAMatMulAddToGemm(_MatMulAddToGemmBase):
     trans_a: ClassVar = True
 
     def pattern(self, op, input_a, input_b, input_c):
-        matmul = op.MatMul(op.Transpose(input_a, perm=[1, 0]), input_b)
+        matmul = op.MatMul(
+            op.Transpose(input_a, _outputs=["trans_a_out"]),
+            input_b,
+        )
         return op.Add(matmul, input_c)
 
 
