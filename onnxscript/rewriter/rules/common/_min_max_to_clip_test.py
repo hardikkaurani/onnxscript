@@ -363,5 +363,33 @@ class TestIntegrationMinMaxToClip(_TestMinMaxToClipBase):
         self.run_test(model, expected_op_types=["Clip", "Clip", "Clip"])
 
 
+class TestSingleInputMinMax(_TestMinMaxToClipBase):
+    def test_single_input_min_does_not_crash(self):
+        model = ir.from_onnx_text("""
+            < ir_version: 10, opset_import: ["" : 20] >
+            test_model (float[4] X) => (float[4] Y)
+            {
+                x1 = Min(X)
+                Y = Min(x1)
+            }
+        """)
+        count = rules.apply_to_model(model)
+        self.assertEqual(count, 0)
+        self.assertEqual([node.op_type for node in model.graph], ["Min", "Min"])
+
+    def test_single_input_max_does_not_crash(self):
+        model = ir.from_onnx_text("""
+            < ir_version: 10, opset_import: ["" : 20] >
+            test_model (float[4] X) => (float[4] Y)
+            {
+                x1 = Max(X)
+                Y = Max(x1)
+            }
+        """)
+        count = rules.apply_to_model(model)
+        self.assertEqual(count, 0)
+        self.assertEqual([node.op_type for node in model.graph], ["Max", "Max"])
+
+
 if __name__ == "__main__":
     unittest.main()
