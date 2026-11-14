@@ -93,8 +93,12 @@ class _FuseMinMaxBase(RewriteRuleClassBase, abc.ABC):
         first_node = out1.producer()
         second_node = out2.producer()
 
+        const_inputs = first_node.inputs[1:] + second_node.inputs[1:]
+        if not const_inputs:
+            return check_result.fail("No constant inputs found to fuse.")
+
         # Ensure all inputs except the first are constants
-        for input_ in first_node.inputs[1:] + second_node.inputs[1:]:
+        for input_ in const_inputs:
             if ir.convenience.get_const_tensor(input_) is None:
                 return check_result.fail(f"{input_.name} is not a constant.")
 
