@@ -390,6 +390,62 @@ class TestSingleInputMinMax(_TestMinMaxToClipBase):
         self.assertEqual(count, 0)
         self.assertEqual([node.op_type for node in model.graph], ["Max", "Max"])
 
+    def test_failure_fuse_max_min_missing_first_node_bound(self):
+        model = ir.from_onnx_text("""
+            < ir_version: 10, opset_import: ["" : 20] >
+            test_model (float[4] X) => (float[4] Y)
+            <float ub = {5.0}>
+            {
+                x1 = Max(X)
+                Y = Min(x1, ub)
+            }
+        """)
+        count = rules.apply_to_model(model)
+        self.assertEqual(count, 0)
+        self.assertEqual([node.op_type for node in model.graph], ["Max", "Min"])
+
+    def test_failure_fuse_max_min_missing_second_node_bound(self):
+        model = ir.from_onnx_text("""
+            < ir_version: 10, opset_import: ["" : 20] >
+            test_model (float[4] X) => (float[4] Y)
+            <float lb = {0.0}>
+            {
+                x1 = Max(X, lb)
+                Y = Min(x1)
+            }
+        """)
+        count = rules.apply_to_model(model)
+        self.assertEqual(count, 0)
+        self.assertEqual([node.op_type for node in model.graph], ["Max", "Min"])
+
+    def test_failure_fuse_min_max_missing_first_node_bound(self):
+        model = ir.from_onnx_text("""
+            < ir_version: 10, opset_import: ["" : 20] >
+            test_model (float[4] X) => (float[4] Y)
+            <float lb = {0.0}>
+            {
+                x1 = Min(X)
+                Y = Max(x1, lb)
+            }
+        """)
+        count = rules.apply_to_model(model)
+        self.assertEqual(count, 0)
+        self.assertEqual([node.op_type for node in model.graph], ["Min", "Max"])
+
+    def test_failure_fuse_min_max_missing_second_node_bound(self):
+        model = ir.from_onnx_text("""
+            < ir_version: 10, opset_import: ["" : 20] >
+            test_model (float[4] X) => (float[4] Y)
+            <float ub = {5.0}>
+            {
+                x1 = Min(X, ub)
+                Y = Max(x1)
+            }
+        """)
+        count = rules.apply_to_model(model)
+        self.assertEqual(count, 0)
+        self.assertEqual([node.op_type for node in model.graph], ["Min", "Max"])
+
 
 if __name__ == "__main__":
     unittest.main()
