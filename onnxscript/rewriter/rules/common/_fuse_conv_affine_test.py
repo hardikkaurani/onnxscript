@@ -106,6 +106,51 @@ class FuseConvAffineTest(unittest.TestCase):
         ]
         testing.assert_numerically_equal(model, rewritten_model, inputs)
 
+    def test_affine_conv_fusion_omitted_pads(self):
+        """Conv with omitted pads attribute defaults to zero-padding and should be fused."""
+        tape = ir.tape.Tape()
+        x = ir.val("x", dtype=ir.DataType.FLOAT, shape=ir.Shape([1, 3, 32, 32]))
+        w = tape.initializer(ir.tensor(np.ones((3, 3, 3, 3), dtype=np.float32), name="w"))
+        b = tape.initializer(ir.tensor(np.ones((3,), dtype=np.float32), name="b"))
+        scale = tape.initializer(ir.tensor(np.array([2.0], dtype=np.float32), name="scale"))
+        offset = tape.initializer(ir.tensor(np.array([3.0], dtype=np.float32), name="offset"))
+
+        mul_out = tape.op("Mul", [x, scale])
+        z = tape.op(
+            "Add",
+            [mul_out, offset],
+            output=ir.val(
+                "z",
+                dtype=ir.DataType.FLOAT,
+                shape=ir.Shape([1, 3, 32, 32]),
+            ),
+        )
+        conv_out = tape.op("Conv", [z, w, b])  # Omitted pads attribute
+
+        model = ir.Model(
+            ir.Graph(
+                inputs=[x],
+                outputs=[conv_out],
+                nodes=tape.nodes,
+                initializers=tape.initializers,
+                opset_imports={"": 17},
+            ),
+            ir_version=8,
+        )
+        rewritten_model = self.clone_model(model)
+        rewritten_model = rewrite(
+            rewritten_model,
+            pattern_rewrite_rules=[affine_conv_fusion_rule],
+        )
+        self.assertEqual(model.graph.num_nodes() - 2, rewritten_model.graph.num_nodes())
+        self.assertEqual([node.op_type for node in rewritten_model.graph], ["Conv"])
+
+        rng = np.random.default_rng(42)
+        inputs = [
+            rng.random((1, 3, 32, 32), dtype=np.float32),
+        ]
+        testing.assert_numerically_equal(model, rewritten_model, inputs)
+
 
 if __name__ == "__main__":
     unittest.main()
