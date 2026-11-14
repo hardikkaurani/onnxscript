@@ -98,9 +98,7 @@ class _FuseMinMaxBase(RewriteRuleClassBase, abc.ABC):
             return check_result.fail("No constant inputs found to fuse.")
 
         # Clip fusion requires bounds from both operations (min and max)
-        if self.need_scalars and (
-            len(first_node.inputs) <= 1 or len(second_node.inputs) <= 1
-        ):
+        if self.need_scalars and (len(first_node.inputs) <= 1 or len(second_node.inputs) <= 1):
             return check_result.fail(
                 "Clip fusion requires constant bounds on both operations."
             )
@@ -149,9 +147,7 @@ class FuseSuccessiveMin(_FuseMinMaxBase):
         input_name: str = "",
     ) -> list[tuple[ir.Tensor, str]]:
         inputs = first_node.inputs[1:] + second_node.inputs[1:]
-        values = [
-            ir.convenience.get_const_tensor(input_).numpy() for input_ in inputs
-        ]
+        values = [ir.convenience.get_const_tensor(input_).numpy() for input_ in inputs]
         return [(ir.tensor(functools.reduce(np.minimum, values)), f"{input_name}_min")]
 
     def pattern(self, op, x):
@@ -178,9 +174,7 @@ class FuseSuccessiveMax(_FuseMinMaxBase):
         input_name: str = "",
     ) -> list[tuple[ir.Tensor, str]]:
         inputs = first_node.inputs[1:] + second_node.inputs[1:]
-        values = [
-            ir.convenience.get_const_tensor(input_).numpy() for input_ in inputs
-        ]
+        values = [ir.convenience.get_const_tensor(input_).numpy() for input_ in inputs]
         return [(ir.tensor(functools.reduce(np.maximum, values)), f"{input_name}_max")]
 
     def pattern(self, op, x):
