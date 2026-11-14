@@ -358,5 +358,96 @@ class TransABMatMulAddToGemmTest(_MatMulAddToGemmTestBase):
         return super().check_matmul_add_to_gemm_incompatible_shapes(**kwargs)
 
 
+class TransposePermValidationTest(unittest.TestCase):
+    def test_transpose_omitted_perm_trans_a_fused_to_gemm(self):
+        model_text = """
+            <ir_version: 8, opset_import: ["" : 17]>
+            test (float[8, 4] a, float[8, 16] b, float[16] c) => (float[4, 16] out)
+            {
+                ta = Transpose(a)
+                mm = MatMul(ta, b)
+                out = Add(mm, c)
+            }
+        """
+        model = ir.from_onnx_text(model_text)
+        count = _matmul_add_to_gemm.rules.apply_to_model(model)
+        self.assertEqual(count, 1)
+        self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
+        self.assertEqual(model.graph[0].attributes.get_int("transA"), 1)
+
+    def test_transpose_omitted_perm_trans_b_fused_to_gemm(self):
+        model_text = """
+            <ir_version: 8, opset_import: ["" : 17]>
+            test (float[4, 8] a, float[16, 8] b, float[16] c) => (float[4, 16] out)
+            {
+                tb = Transpose(b)
+                mm = MatMul(a, tb)
+                out = Add(mm, c)
+            }
+        """
+        model = ir.from_onnx_text(model_text)
+        count = _matmul_add_to_gemm.rules.apply_to_model(model)
+        self.assertEqual(count, 1)
+        self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
+        self.assertEqual(model.graph[0].attributes.get_int("transB"), 1)
+
+    def test_transpose_omitted_perm_trans_ab_fused_to_gemm(self):
+        model_text = """
+            <ir_version: 8, opset_import: ["" : 17]>
+            test (float[8, 4] a, float[16, 8] b, float[16] c) => (float[4, 16] out)
+            {
+                ta = Transpose(a)
+                tb = Transpose(b)
+                mm = MatMul(ta, tb)
+                out = Add(mm, c)
+            }
+        """
+        model = ir.from_onnx_text(model_text)
+        count = _matmul_add_to_gemm.rules.apply_to_model(model)
+        self.assertEqual(count, 1)
+        self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
+        self.assertEqual(model.graph[0].attributes.get_int("transA"), 1)
+        self.assertEqual(model.graph[0].attributes.get_int("transB"), 1)
+
+    def test_transpose_invalid_perm_rejected(self):
+        model_text = """
+            <ir_version: 8, opset_import: ["" : 17]>
+            test (float[8, 4] a, float[8, 16] b, float[16] c) => (float[4, 16] out)
+            {
+                ta = Transpose<perm = [0, 1]>(a)
+                mm = MatMul(ta, b)
+                out = Add(mm, c)
+            }
+        """
+        model = ir.from_onnx_text(model_text)
+        count = _matmul_add_to_gemm.rules.apply_to_model(model)
+        self.assertEqual(count, 0)
+        self.assertIn("MatMul", [n.op_type for n in model.graph])
+
+    def test_transpose_reference_attribute_perm_rejected(self):
+        model_proto = onnx.parser.parse_model(
+            """
+            <ir_version: 10, opset_import: [ "" : 18, "local" : 1]>
+            agraph (float[8, 4] a, float[8, 16] b, float[16] c) => (float[4, 16] output)
+            {
+                output = local.CustomMatMul <perm_val = [1, 0]> (a, b, c)
+            }
+            <domain: "local", opset_import: [ "" : 18]>
+            CustomMatMul <perm_val> (a, b, c) => (output)
+            {
+                ta = Transpose <perm: ints = @perm_val> (a)
+                mm = MatMul (ta, b)
+                output = Add (mm, c)
+            }
+        """
+        )
+        onnx.checker.check_model(model_proto, full_check=True)
+        model = ir.serde.deserialize_model(model_proto)
+        count = _matmul_add_to_gemm.rules.apply_to_model(model)
+        self.assertEqual(count, 0)
+        function = next(iter(model.functions.values()))
+        self.assertIn("MatMul", [n.op_type for n in function])
+
+
 if __name__ == "__main__":
     unittest.main()
