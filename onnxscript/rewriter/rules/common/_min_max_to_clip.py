@@ -117,10 +117,16 @@ class _FuseMinMaxBase(RewriteRuleClassBase, abc.ABC):
         if self.need_scalars and self.check_bounds:
             # For Clip fusion in the case of Max(Min(X, upper_bound), lower_bound): check that lower_bound <= upper_bound
             lower_bound, upper_bound = self.compute_constants(first_node, second_node)
-            if lower_bound[0].numpy() > upper_bound[0].numpy():
+            lb_val = lower_bound[0].numpy()
+            ub_val = upper_bound[0].numpy()
+            if np.isnan(lb_val) or np.isnan(ub_val):
                 return check_result.fail(
-                    f"Invalid bounds: lower bound ({lower_bound[0].numpy()}) is greater "
-                    f"than upper bound ({upper_bound[0].numpy()})."
+                    f"Invalid bounds: NaN bound encountered (lower bound: {lb_val}, upper bound: {ub_val})."
+                )
+            if lb_val > ub_val:
+                return check_result.fail(
+                    f"Invalid bounds: lower bound ({lb_val}) is greater "
+                    f"than upper bound ({ub_val})."
                 )
 
         return check_result
