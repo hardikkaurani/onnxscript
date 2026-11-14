@@ -107,11 +107,12 @@ class _FuseMinMaxBase(RewriteRuleClassBase, abc.ABC):
 
         # Ensure all inputs except the first are constants
         for input_ in const_inputs:
-            if ir.convenience.get_const_tensor(input_) is None:
+            const_tensor = ir.convenience.get_const_tensor(input_)
+            if const_tensor is None:
                 return check_result.fail(f"{input_.name} is not a constant.")
 
             # If scalars are required (Clip fusion), enforce scalar-ness
-            if self.need_scalars and not self._is_scalar(input_.const_value.numpy()):
+            if self.need_scalars and not self._is_scalar(const_tensor.numpy()):
                 return check_result.fail(f"{input_.name} is not a scalar.")
 
         if self.need_scalars and self.check_bounds:
@@ -148,7 +149,9 @@ class FuseSuccessiveMin(_FuseMinMaxBase):
         input_name: str = "",
     ) -> list[tuple[ir.Tensor, str]]:
         inputs = first_node.inputs[1:] + second_node.inputs[1:]
-        values = [input_.const_value.numpy() for input_ in inputs]
+        values = [
+            ir.convenience.get_const_tensor(input_).numpy() for input_ in inputs
+        ]
         return [(ir.tensor(functools.reduce(np.minimum, values)), f"{input_name}_min")]
 
     def pattern(self, op, x):
@@ -175,7 +178,9 @@ class FuseSuccessiveMax(_FuseMinMaxBase):
         input_name: str = "",
     ) -> list[tuple[ir.Tensor, str]]:
         inputs = first_node.inputs[1:] + second_node.inputs[1:]
-        values = [input_.const_value.numpy() for input_ in inputs]
+        values = [
+            ir.convenience.get_const_tensor(input_).numpy() for input_ in inputs
+        ]
         return [(ir.tensor(functools.reduce(np.maximum, values)), f"{input_name}_max")]
 
     def pattern(self, op, x):
@@ -205,8 +210,18 @@ class FuseMaxMinToClip(_FuseMinMaxBase):
         second_node: ir.Node,
         input_name: str = "",
     ) -> list[tuple[ir.Tensor, str]]:
-        lower_bound = np.max([input_.const_value.numpy() for input_ in first_node.inputs[1:]])
-        upper_bound = np.min([input_.const_value.numpy() for input_ in second_node.inputs[1:]])
+        lower_bound = np.max(
+            [
+                ir.convenience.get_const_tensor(input_).numpy()
+                for input_ in first_node.inputs[1:]
+            ]
+        )
+        upper_bound = np.min(
+            [
+                ir.convenience.get_const_tensor(input_).numpy()
+                for input_ in second_node.inputs[1:]
+            ]
+        )
         return [
             (ir.tensor(lower_bound), f"{input_name}_min"),
             (ir.tensor(upper_bound), f"{input_name}_max"),
@@ -241,8 +256,18 @@ class FuseMinMaxToClip(_FuseMinMaxBase):
         second_node: ir.Node,
         input_name: str = "",
     ) -> list[tuple[ir.Tensor, str]]:
-        upper_bound = np.min([input_.const_value.numpy() for input_ in first_node.inputs[1:]])
-        lower_bound = np.max([input_.const_value.numpy() for input_ in second_node.inputs[1:]])
+        upper_bound = np.min(
+            [
+                ir.convenience.get_const_tensor(input_).numpy()
+                for input_ in first_node.inputs[1:]
+            ]
+        )
+        lower_bound = np.max(
+            [
+                ir.convenience.get_const_tensor(input_).numpy()
+                for input_ in second_node.inputs[1:]
+            ]
+        )
         return [
             (ir.tensor(lower_bound), f"{input_name}_min"),
             (ir.tensor(upper_bound), f"{input_name}_max"),
