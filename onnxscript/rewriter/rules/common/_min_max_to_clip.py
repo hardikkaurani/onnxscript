@@ -210,17 +210,21 @@ class FuseMaxMinToClip(_FuseMinMaxBase):
         second_node: ir.Node,
         input_name: str = "",
     ) -> list[tuple[ir.Tensor, str]]:
-        lower_bound = np.max(
-            [
-                ir.convenience.get_const_tensor(input_).numpy()
-                for input_ in first_node.inputs[1:]
-            ]
+        lower_bound = np.squeeze(
+            np.max(
+                [
+                    ir.convenience.get_const_tensor(input_).numpy()
+                    for input_ in first_node.inputs[1:]
+                ]
+            )
         )
-        upper_bound = np.min(
-            [
-                ir.convenience.get_const_tensor(input_).numpy()
-                for input_ in second_node.inputs[1:]
-            ]
+        upper_bound = np.squeeze(
+            np.min(
+                [
+                    ir.convenience.get_const_tensor(input_).numpy()
+                    for input_ in second_node.inputs[1:]
+                ]
+            )
         )
         return [
             (ir.tensor(lower_bound), f"{input_name}_min"),
@@ -256,17 +260,21 @@ class FuseMinMaxToClip(_FuseMinMaxBase):
         second_node: ir.Node,
         input_name: str = "",
     ) -> list[tuple[ir.Tensor, str]]:
-        upper_bound = np.min(
-            [
-                ir.convenience.get_const_tensor(input_).numpy()
-                for input_ in first_node.inputs[1:]
-            ]
+        upper_bound = np.squeeze(
+            np.min(
+                [
+                    ir.convenience.get_const_tensor(input_).numpy()
+                    for input_ in first_node.inputs[1:]
+                ]
+            )
         )
-        lower_bound = np.max(
-            [
-                ir.convenience.get_const_tensor(input_).numpy()
-                for input_ in second_node.inputs[1:]
-            ]
+        lower_bound = np.squeeze(
+            np.max(
+                [
+                    ir.convenience.get_const_tensor(input_).numpy()
+                    for input_ in second_node.inputs[1:]
+                ]
+            )
         )
         return [
             (ir.tensor(lower_bound), f"{input_name}_min"),
