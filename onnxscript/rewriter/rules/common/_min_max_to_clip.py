@@ -97,6 +97,14 @@ class _FuseMinMaxBase(RewriteRuleClassBase, abc.ABC):
         if not const_inputs:
             return check_result.fail("No constant inputs found to fuse.")
 
+        # Clip fusion requires bounds from both operations (min and max)
+        if self.need_scalars and (
+            len(first_node.inputs) <= 1 or len(second_node.inputs) <= 1
+        ):
+            return check_result.fail(
+                "Clip fusion requires constant bounds on both operations."
+            )
+
         # Ensure all inputs except the first are constants
         for input_ in const_inputs:
             if ir.convenience.get_const_tensor(input_) is None:
