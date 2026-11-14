@@ -76,6 +76,12 @@ class _MatMulAddToGemmBase(RewriteRuleClassBase, abc.ABC):
         valid_b, reason_b = _is_valid_2d_transpose(trans_b_out)
         if not valid_b:
             return check_result.fail(reason_b)
+        k_a = _ir_utils.get_dim(input_a, 0 if self.trans_a else 1)
+        k_b = _ir_utils.get_dim(input_b, 1 if self.trans_b else 0)
+        if not _ir_utils.same_dim(k_a, k_b):
+            return check_result.fail(
+                f"Contracting dimensions do not match: {k_a} vs {k_b}"
+            )
         # Gemm only broadcasts C to (M, N), while Add can also grow the output,
         # e.g. a (1, K) x (K, N) MatMul plus a (2, N) bias gives (2, N).
         m = _ir_utils.get_dim(input_a, 1 if self.trans_a else 0)
