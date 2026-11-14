@@ -80,9 +80,28 @@ class AffineConvFusion(_ConvAffineFusionBase):
             return check_result.fail("Conv node not found")
         pads_attr = conv_node.attributes.get("pads")
         if pads_attr is not None:
-            pads = list(pads_attr.as_ints())
-            if any(p != 0 for p in pads):
-                return check_result.fail(f"Conv has non-zero pads: {pads}")
+            if hasattr(pads_attr, "is_ref") and pads_attr.is_ref():
+                return check_result.fail(
+                    f"Conv 'pads' refers to reference attribute {pads_attr.ref_attr_name!r}"
+                )
+            try:
+                pads = list(pads_attr.as_ints())
+                if any(p != 0 for p in pads):
+                    return check_result.fail(f"Conv has non-zero pads: {pads}")
+            except (TypeError, ValueError, AttributeError):
+                return check_result.fail("Conv 'pads' attribute could not be read as integers")
+        auto_pad_attr = conv_node.attributes.get("auto_pad")
+        if auto_pad_attr is not None:
+            if hasattr(auto_pad_attr, "is_ref") and auto_pad_attr.is_ref():
+                return check_result.fail(
+                    f"Conv 'auto_pad' refers to reference attribute {auto_pad_attr.ref_attr_name!r}"
+                )
+            try:
+                auto_pad = auto_pad_attr.as_str()
+                if auto_pad not in {"NOTSET", "VALID"}:
+                    return check_result.fail(f"Conv 'auto_pad' {auto_pad!r} introduces padding")
+            except (TypeError, ValueError, AttributeError):
+                return check_result.fail("Conv 'auto_pad' attribute could not be read as string")
         return check_result
 
     def rewrite(
