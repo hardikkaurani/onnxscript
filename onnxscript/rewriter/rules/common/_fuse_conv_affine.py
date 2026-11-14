@@ -99,9 +99,13 @@ class AffineConvFusion(_ConvAffineFusionBase):
             try:
                 auto_pad = auto_pad_attr.as_string()
                 if auto_pad not in {"NOTSET", "VALID"}:
-                    return check_result.fail(f"Conv 'auto_pad' {auto_pad!r} introduces padding")
+                    return check_result.fail(
+                        f"Conv 'auto_pad' {auto_pad!r} introduces padding"
+                    )
             except (TypeError, ValueError, AttributeError):
-                return check_result.fail("Conv 'auto_pad' attribute could not be read as string")
+                return check_result.fail(
+                    "Conv 'auto_pad' attribute could not be read as string"
+                )
         return check_result
 
     def rewrite(
@@ -124,9 +128,9 @@ class AffineConvFusion(_ConvAffineFusionBase):
         )
         axes = tuple(range(1, w_value.ndim))
         offset_bias = ir.tensor(
-            (
-                b_value + np.sum(w_value * offset_value, axis=axes, keepdims=False)
-            ).astype(b_value.dtype)
+            (b_value + np.sum(w_value * offset_value, axis=axes, keepdims=False)).astype(
+                b_value.dtype
+            )
         )
         offset_bias = op.initializer(offset_bias, b.name + "_offset")
         conv_attributes = conv_out.producer().attributes
@@ -160,9 +164,7 @@ class ConvAffineFusion(_ConvAffineFusionBase):
             ir.tensor((w_value * scale_value).astype(w_value.dtype)),
             w.name + "_scaled",
         )
-        offset_bias = ir.tensor(
-            (b_value * scale_value + offset_value).astype(b_value.dtype)
-        )
+        offset_bias = ir.tensor((b_value * scale_value + offset_value).astype(b_value.dtype))
         offset_bias = op.initializer(offset_bias, b.name + "_offset")
         conv_attributes = conv_out.producer().attributes
         return op.Conv(x, scaled_w_weight, offset_bias, **conv_attributes)
