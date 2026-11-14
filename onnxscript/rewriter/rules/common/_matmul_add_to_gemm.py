@@ -10,9 +10,37 @@
 import abc
 from typing import ClassVar
 
+import onnx_ir as ir
+
 from onnxscript.rewriter import _ir_utils
 from onnxscript.rewriter._basics import MatchResult
 from onnxscript.rewriter._rewrite_rule import RewriteRuleClassBase, RewriteRuleSet
+
+
+def _is_valid_2d_transpose(trans_out: ir.Value | None) -> tuple[bool, str]:
+    """Validate that the Transpose node transposes a 2D matrix (perm=[1, 0] or omitted)."""
+    if trans_out is None:
+        return True, ""
+    node = trans_out.producer()
+    if node is None or node.op_type != "Transpose":
+        return True, ""
+    perm_attr = node.attributes.get("perm")
+    if perm_attr is None:
+        # In ONNX Transpose, if perm is omitted, dimensions are reversed.
+        # For rank 2 tensors, reversing (0, 1) gives [1, 0].
+        return True, ""
+    if hasattr(perm_attr, "is_ref") and perm_attr.is_ref():
+        return (
+            False,
+            f"Transpose 'perm' refers to reference attribute {perm_attr.ref_attr_name!r}",
+        )
+    try:
+        perm_vals = list(perm_attr.as_ints())
+    except (TypeError, ValueError, AttributeError):
+        return False, "Transpose 'perm' attribute could not be read as integers"
+    if perm_vals != [1, 0]:
+        return False, f"Expected Transpose perm [1, 0], got {perm_vals}"
+    return True, ""
 
 
 class _MatMulAddToGemmBase(RewriteRuleClassBase, abc.ABC):
@@ -27,12 +55,27 @@ class _MatMulAddToGemmBase(RewriteRuleClassBase, abc.ABC):
             attributes["transB"] = 1
         return op.Gemm(input_a, input_b, input_c, **attributes)
 
-    def check(self, context, input_a, input_b, input_c, **_):
+    def check(
+        self,
+        context,
+        input_a,
+        input_b,
+        input_c,
+        trans_a_out=None,
+        trans_b_out=None,
+        **_,
+    ):
         del context  # Not used
         check_result = MatchResult()
         # Rank of input_a and input_b must be 2
         if not (_ir_utils.has_rank(input_a, 2) and _ir_utils.has_rank(input_b, 2)):
             return check_result.fail("Rank of input_a and input_b must be 2")
+        valid_a, reason_a = _is_valid_2d_transpose(trans_a_out)
+        if not valid_a:
+            return check_result.fail(reason_a)
+        valid_b, reason_b = _is_valid_2d_transpose(trans_b_out)
+        if not valid_b:
+            return check_result.fail(reason_b)
         # Gemm only broadcasts C to (M, N), while Add can also grow the output,
         # e.g. a (1, K) x (K, N) MatMul plus a (2, N) bias gives (2, N).
         m = _ir_utils.get_dim(input_a, 1 if self.trans_a else 0)
