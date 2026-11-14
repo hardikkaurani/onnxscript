@@ -27,10 +27,22 @@ class _ConvAffineFusionBase(pattern.RewriteRuleClassBase):
         conv_out: ir.Value,
     ) -> MatchResult:
         check_result = MatchResult()
-        if get_const_value(w) is None:
+        w_val = get_const_value(w)
+        if w_val is None:
             return check_result.fail("The weight of Conv should be constant")
-        if get_const_value(b) is None:
+        b_val = get_const_value(b)
+        if b_val is None:
             return check_result.fail("The bias of Conv should be constant")
+        w_arr = w_val.numpy()
+        b_arr = b_val.numpy()
+        if w_arr.ndim < 3:
+            return check_result.fail("Conv weight tensor must have rank >= 3")
+        if b_arr.ndim != 1:
+            return check_result.fail("Conv bias tensor must have rank 1")
+        if w_arr.shape[0] != b_arr.shape[0]:
+            return check_result.fail(
+                f"Conv weight output channels ({w_arr.shape[0]}) does not match bias channels ({b_arr.shape[0]})"
+            )
         if get_singleton_value(scale) is None:
             return check_result.fail("Operand for Mul should be constant scalar value")
         if get_singleton_value(offset) is None:
