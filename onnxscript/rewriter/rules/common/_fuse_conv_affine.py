@@ -119,8 +119,9 @@ class AffineConvFusion(_ConvAffineFusionBase):
         w_value = w.const_value.numpy()
         b_value = b.const_value.numpy()
         scaled_w_value = op.initializer(ir.tensor(w_value * scale_value), w.name + "_scaled")
+        axes = tuple(range(1, w_value.ndim))
         offset_bias = ir.tensor(
-            b_value + np.sum(w_value * offset_value, axis=(1, 2, 3), keepdims=False)
+            b_value + np.sum(w_value * offset_value, axis=axes, keepdims=False)
         )
         offset_bias = op.initializer(offset_bias, b.name + "_offset")
         conv_attributes = conv_out.producer().attributes
