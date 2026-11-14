@@ -150,6 +150,49 @@ class FuseConvAffineExtendedTest(unittest.TestCase):
         inputs = [rng.random((1, 3, 32, 32), dtype=np.float32)]
         testing.assert_numerically_equal(model, rewritten, inputs)
 
+    def test_affine_conv_auto_pad_same_upper_rejected(self):
+        """Conv with auto_pad='SAME_UPPER' introduces padding and must be rejected."""
+
+        @script()
+        def model_fn(x: FLOAT[1, 3, 32, 32]) -> FLOAT[1, 3, 32, 32]:
+            w = op.Constant(value=_W_ONES)
+            b = op.Constant(value=_B_ONES)
+            scale = op.Constant(value_float=2.0)
+            offset = op.Constant(value_float=3.0)
+            affine_x = (x * scale) + offset
+            return op.Conv(affine_x, w, b, auto_pad="SAME_UPPER")
+
+        model_proto = model_fn.to_model_proto()
+        model = ir.serde.deserialize_model(model_proto)
+        rewritten = self._clone(model)
+        rewritten = rewrite(rewritten, pattern_rewrite_rules=[affine_conv_fusion_rule])
+        self.assertEqual(model.graph.num_nodes(), rewritten.graph.num_nodes())
+
+    def test_affine_conv_auto_pad_valid_accepted(self):
+        """Conv with auto_pad='VALID' has zero padding and should fuse into Conv."""
+
+        @script()
+        def model_fn(x: FLOAT[1, 3, 32, 32]) -> FLOAT[1, 3, 30, 30]:
+            w = op.Constant(value=_W_ONES)
+            b = op.Constant(value=_B_ONES)
+            scale = op.Constant(value_float=2.0)
+            offset = op.Constant(value_float=3.0)
+            affine_x = (x * scale) + offset
+            return op.Conv(affine_x, w, b, auto_pad="VALID")
+
+        model_proto = model_fn.to_model_proto()
+        model = ir.serde.deserialize_model(model_proto)
+        rewritten = self._clone(model)
+        rewritten = rewrite(rewritten, pattern_rewrite_rules=[affine_conv_fusion_rule])
+        rewritten_ops = [n.op_type for n in rewritten.graph]
+        self.assertNotIn("Mul", rewritten_ops)
+        self.assertNotIn("Add", rewritten_ops)
+        self.assertIn("Conv", rewritten_ops)
+
+        rng = np.random.default_rng(42)
+        inputs = [rng.random((1, 3, 32, 32), dtype=np.float32)]
+        testing.assert_numerically_equal(model, rewritten, inputs)
+
 
 if __name__ == "__main__":
     unittest.main()

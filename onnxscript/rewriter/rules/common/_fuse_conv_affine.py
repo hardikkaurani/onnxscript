@@ -97,7 +97,7 @@ class AffineConvFusion(_ConvAffineFusionBase):
                     f"Conv 'auto_pad' refers to reference attribute {auto_pad_attr.ref_attr_name!r}"
                 )
             try:
-                auto_pad = auto_pad_attr.as_str()
+                auto_pad = auto_pad_attr.as_string()
                 if auto_pad not in {"NOTSET", "VALID"}:
                     return check_result.fail(f"Conv 'auto_pad' {auto_pad!r} introduces padding")
             except (TypeError, ValueError, AttributeError):
