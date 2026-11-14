@@ -133,8 +133,8 @@ class TransABMatMulAddToGemm(_MatMulAddToGemmBase):
 
     def pattern(self, op, input_a, input_b, input_c):
         matmul = op.MatMul(
-            op.Transpose(input_a, perm=[1, 0]),
-            op.Transpose(input_b, perm=[1, 0]),
+            op.Transpose(input_a, _outputs=["trans_a_out"]),
+            op.Transpose(input_b, _outputs=["trans_b_out"]),
         )
         return op.Add(matmul, input_c)
 
