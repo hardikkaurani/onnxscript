@@ -58,10 +58,32 @@ class AffineConvFusion(_ConvAffineFusionBase):
             x * scale + offset,
             w,
             b,
-            pads=[0, 0, 0, 0],
             _allow_other_attributes=True,
             _outputs=["conv_out"],
         )
+
+    def check(
+        self,
+        context,
+        x: ir.Value,
+        w: ir.Value,
+        b: ir.Value,
+        scale: ir.Value,
+        offset: ir.Value,
+        conv_out: ir.Value,
+    ) -> MatchResult:
+        check_result = super().check(context, x, w, b, scale, offset, conv_out)
+        if not check_result:
+            return check_result
+        conv_node = conv_out.producer()
+        if conv_node is None:
+            return check_result.fail("Conv node not found")
+        pads_attr = conv_node.attributes.get("pads")
+        if pads_attr is not None:
+            pads = list(pads_attr.as_ints())
+            if any(p != 0 for p in pads):
+                return check_result.fail(f"Conv has non-zero pads: {pads}")
+        return check_result
 
     def rewrite(
         self,
