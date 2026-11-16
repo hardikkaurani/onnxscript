@@ -534,6 +534,34 @@ class MatMulAddCommutativeTest(unittest.TestCase):
         c_val = np.random.randn(16).astype(np.float32)
         testing.assert_numerically_equal(original, model, (a_val, b_val, c_val))
 
+    def test_matmul_add_dynamic_differently_named_symbolic_contracting_dims_fused(self):
+        model_text = """
+            <ir_version: 8, opset_import: ["" : 17]>
+            test (float[4, "K_a"] a, float["K_b", 16] b, float[16] c) => (float[4, 16] out)
+            {
+                mm = MatMul(a, b)
+                out = Add(mm, c)
+            }
+        """
+        model = ir.from_onnx_text(model_text)
+        count = _matmul_add_to_gemm.rules.apply_to_model(model)
+        self.assertEqual(count, 1)
+        self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
+
+    def test_matmul_add_concrete_contracting_dimension_mismatch_rejected(self):
+        model_text = """
+            <ir_version: 8, opset_import: ["" : 17]>
+            test (float[4, 8] a, float[10, 16] b, float[16] c) => (float[4, 16] out)
+            {
+                mm = MatMul(a, b)
+                out = Add(mm, c)
+            }
+        """
+        model = ir.from_onnx_text(model_text)
+        count = _matmul_add_to_gemm.rules.apply_to_model(model)
+        self.assertEqual(count, 0)
+        self.assertEqual([n.op_type for n in model.graph], ["MatMul", "Add"])
+
 
 if __name__ == "__main__":
     unittest.main()
