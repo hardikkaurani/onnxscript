@@ -113,8 +113,7 @@ class _FuseMinMaxBase(RewriteRuleClassBase, abc.ABC):
             if self.need_scalars and not self._is_scalar(const_tensor.numpy()):
                 return check_result.fail(f"{input_.name} is not a scalar.")
 
-        if self.need_scalars and self.check_bounds:
-            # For Clip fusion in the case of Max(Min(X, upper_bound), lower_bound): check that lower_bound <= upper_bound
+        if self.need_scalars:
             lower_bound, upper_bound = self.compute_constants(first_node, second_node)
             lb_val = lower_bound[0].numpy()
             ub_val = upper_bound[0].numpy()
@@ -122,7 +121,8 @@ class _FuseMinMaxBase(RewriteRuleClassBase, abc.ABC):
                 return check_result.fail(
                     f"Invalid bounds: NaN bound encountered (lower bound: {lb_val}, upper bound: {ub_val})."
                 )
-            if lb_val > ub_val:
+            if self.check_bounds and lb_val > ub_val:
+                # For Clip fusion in the case of Max(Min(X, upper_bound), lower_bound): check that lower_bound <= upper_bound
                 return check_result.fail(
                     f"Invalid bounds: lower bound ({lb_val}) is greater "
                     f"than upper bound ({ub_val})."
