@@ -269,6 +269,92 @@ class FuseConvAffineExtendedTest(unittest.TestCase):
         self.assertEqual(count, 0)
         self.assertIn("Mul", [n.op_type for n in model.graph])
 
+    def test_conv_affine_external_weights_nonconstant_scale_rejected_without_filenotfound(
+        self,
+    ):
+        """ConvAffineFusion with external weights and non-constant scale must reject without FileNotFoundError."""
+        tape = ir.tape.Tape()
+        x = ir.val("x", dtype=ir.DataType.FLOAT, shape=ir.Shape([1, 3, 32, 32]))
+        scale = ir.val("scale", dtype=ir.DataType.FLOAT, shape=ir.Shape([1]))
+        offset = tape.initializer(ir.tensor(np.array(3.0, dtype=np.float32), name="offset"))
+        b = tape.initializer(ir.tensor(np.ones((3,), dtype=np.float32), name="b"))
+        w = tape.initializer(
+            ir.ExternalTensor(
+                location="nonexistent_weights.bin",
+                offset=0,
+                length=100,
+                dtype=ir.DataType.FLOAT,
+                shape=ir.Shape([3, 3, 3, 3]),
+                name="w",
+            )
+        )
+
+        conv_out = tape.op("Conv", [x, w, b], attributes={"pads": [0, 0, 0, 0]})
+        mul_out = tape.op("Mul", [conv_out, scale])
+        z = tape.op(
+            "Add",
+            [mul_out, offset],
+            output=ir.val(
+                "z",
+                dtype=ir.DataType.FLOAT,
+                shape=ir.Shape([1, 3, 32, 32]),
+            ),
+        )
+
+        model = ir.Model(
+            ir.Graph(
+                inputs=[x, scale],
+                outputs=[z],
+                nodes=tape.nodes,
+                initializers=tape.initializers,
+                opset_imports={"": 17},
+                name="test_graph",
+            ),
+            ir_version=8,
+        )
+        count = conv_affine_fusion_rule.apply_to_model(model)
+        self.assertEqual(count, 0)
+        self.assertIn("Mul", [n.op_type for n in model.graph])
+
+    def test_affine_conv_external_weights_with_padding_rejected_without_filenotfound(
+        self,
+    ):
+        """AffineConvFusion with external weights and padding must reject without FileNotFoundError."""
+        tape = ir.tape.Tape()
+        x = ir.val("x", dtype=ir.DataType.FLOAT, shape=ir.Shape([1, 3, 32, 32]))
+        scale = tape.initializer(ir.tensor(np.array(2.0, dtype=np.float32), name="scale"))
+        offset = tape.initializer(ir.tensor(np.array(3.0, dtype=np.float32), name="offset"))
+        b = tape.initializer(ir.tensor(np.ones((3,), dtype=np.float32), name="b"))
+        w = tape.initializer(
+            ir.ExternalTensor(
+                location="nonexistent_weights.bin",
+                offset=0,
+                length=100,
+                dtype=ir.DataType.FLOAT,
+                shape=ir.Shape([3, 3, 3, 3]),
+                name="w",
+            )
+        )
+
+        mul_out = tape.op("Mul", [x, scale])
+        affine_x = tape.op("Add", [mul_out, offset])
+        conv_out = tape.op("Conv", [affine_x, w, b], attributes={"pads": [1, 1, 1, 1]})
+
+        model = ir.Model(
+            ir.Graph(
+                inputs=[x],
+                outputs=[conv_out],
+                nodes=tape.nodes,
+                initializers=tape.initializers,
+                opset_imports={"": 17},
+                name="test_graph",
+            ),
+            ir_version=8,
+        )
+        count = affine_conv_fusion_rule.apply_to_model(model)
+        self.assertEqual(count, 0)
+        self.assertIn("Mul", [n.op_type for n in model.graph])
+
 
 if __name__ == "__main__":
     unittest.main()
