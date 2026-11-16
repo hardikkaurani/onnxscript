@@ -27,26 +27,26 @@ class _ConvAffineFusionBase(pattern.RewriteRuleClassBase):
         conv_out: ir.Value,
     ) -> MatchResult:
         check_result = MatchResult()
+        if get_singleton_value(scale) is None:
+            return check_result.fail("Operand for Mul should be constant scalar value")
+        if get_singleton_value(offset) is None:
+            return check_result.fail("Operand for Add should be constant scalar value")
         w_val = get_const_value(w)
         if w_val is None:
             return check_result.fail("The weight of Conv should be constant")
         b_val = get_const_value(b)
         if b_val is None:
             return check_result.fail("The bias of Conv should be constant")
-        w_arr = w_val.numpy()
-        b_arr = b_val.numpy()
-        if w_arr.ndim < 3:
+        w_shape = w_val.shape
+        b_shape = b_val.shape
+        if len(w_shape) < 3:
             return check_result.fail("Conv weight tensor must have rank >= 3")
-        if b_arr.ndim != 1:
+        if len(b_shape) != 1:
             return check_result.fail("Conv bias tensor must have rank 1")
-        if w_arr.shape[0] != b_arr.shape[0]:
+        if w_shape[0] != b_shape[0]:
             return check_result.fail(
-                f"Conv weight output channels ({w_arr.shape[0]}) does not match bias channels ({b_arr.shape[0]})"
+                f"Conv weight output channels ({w_shape[0]}) does not match bias channels ({b_shape[0]})"
             )
-        if get_singleton_value(scale) is None:
-            return check_result.fail("Operand for Mul should be constant scalar value")
-        if get_singleton_value(offset) is None:
-            return check_result.fail("Operand for Add should be constant scalar value")
         return check_result
 
 
@@ -72,9 +72,7 @@ class AffineConvFusion(_ConvAffineFusionBase):
         offset: ir.Value,
         conv_out: ir.Value,
     ) -> MatchResult:
-        check_result = super().check(context, x, w, b, scale, offset, conv_out)
-        if not check_result:
-            return check_result
+        check_result = MatchResult()
         conv_node = conv_out.producer()
         if conv_node is None:
             return check_result.fail("Conv node not found")
@@ -106,7 +104,7 @@ class AffineConvFusion(_ConvAffineFusionBase):
                 return check_result.fail(
                     "Conv 'auto_pad' attribute could not be read as string"
                 )
-        return check_result
+        return super().check(context, x, w, b, scale, offset, conv_out)
 
     def rewrite(
         self,
