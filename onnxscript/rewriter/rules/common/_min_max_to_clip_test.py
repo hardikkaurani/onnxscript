@@ -488,6 +488,48 @@ class TestSingleInputMinMax(_TestMinMaxToClipBase):
         self.assertEqual(count, 0)
         self.assertEqual([node.op_type for node in model.graph], ["Min", "Max"])
 
+    def test_failure_fuse_max_min_nan_lower_bound(self):
+        model = ir.from_onnx_text("""
+            < ir_version: 10, opset_import: ["" : 20] >
+            test_model (float[4] X) => (float[4] Y)
+            <float lb = {NaN}, float ub = {5.0}>
+            {
+                x1 = Max(X, lb)
+                Y = Min(x1, ub)
+            }
+        """)
+        count = rules.apply_to_model(model)
+        self.assertEqual(count, 0)
+        self.assertEqual([node.op_type for node in model.graph], ["Max", "Min"])
+
+    def test_failure_fuse_max_min_nan_upper_bound(self):
+        model = ir.from_onnx_text("""
+            < ir_version: 10, opset_import: ["" : 20] >
+            test_model (float[4] X) => (float[4] Y)
+            <float lb = {0.0}, float ub = {NaN}>
+            {
+                x1 = Max(X, lb)
+                Y = Min(x1, ub)
+            }
+        """)
+        count = rules.apply_to_model(model)
+        self.assertEqual(count, 0)
+        self.assertEqual([node.op_type for node in model.graph], ["Max", "Min"])
+
+    def test_failure_fuse_max_min_nan_both_bounds(self):
+        model = ir.from_onnx_text("""
+            < ir_version: 10, opset_import: ["" : 20] >
+            test_model (float[4] X) => (float[4] Y)
+            <float lb = {NaN}, float ub = {NaN}>
+            {
+                x1 = Max(X, lb)
+                Y = Min(x1, ub)
+            }
+        """)
+        count = rules.apply_to_model(model)
+        self.assertEqual(count, 0)
+        self.assertEqual([node.op_type for node in model.graph], ["Max", "Min"])
+
 
 if __name__ == "__main__":
     unittest.main()
