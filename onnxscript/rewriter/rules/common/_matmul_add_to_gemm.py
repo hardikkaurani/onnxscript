@@ -23,7 +23,7 @@ def _is_valid_2d_transpose(trans_out: ir.Value | None) -> tuple[bool, str]:
         return True, ""
     node = trans_out.producer()
     if node is None or node.op_type != "Transpose":
-        return True, ""
+        return False, "Expected Transpose producer for transposed input"
     perm_attr = node.attributes.get("perm")
     if perm_attr is None:
         # In ONNX Transpose, if perm is omitted, dimensions are reversed.

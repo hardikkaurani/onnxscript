@@ -420,9 +420,74 @@ class TransposePermValidationTest(unittest.TestCase):
             }
         """
         model = ir.from_onnx_text(model_text)
-        count = _matmul_add_to_gemm.rules.apply_to_model(model)
+        tracer = MatchingTracer()
+        count = _matmul_add_to_gemm.rules.apply_to_model(model, tracer=tracer)
         self.assertEqual(count, 0)
         self.assertIn("MatMul", [n.op_type for n in model.graph])
+        match = tracer.best_matches_map[
+            _matmul_add_to_gemm.transpose_a_matmul_add_to_gemm_rule
+        ][0]
+        self.assertEqual(match.status.value, MatchStatus.CONDITION_FAILED)
+        self.assertIn("Expected Transpose perm [1, 0], got [0, 1]", match.match_result.reason)
+
+    def test_transpose_b_invalid_perm_rejected(self):
+        model_text = """
+            <ir_version: 8, opset_import: ["" : 17]>
+            test (float[4, 8] a, float[16, 8] b, float[16] c) => (float[4, 16] out)
+            {
+                tb = Transpose<perm = [0, 1]>(b)
+                mm = MatMul(a, tb)
+                out = Add(mm, c)
+            }
+        """
+        model = ir.from_onnx_text(model_text)
+        tracer = MatchingTracer()
+        count = _matmul_add_to_gemm.rules.apply_to_model(model, tracer=tracer)
+        self.assertEqual(count, 0)
+        self.assertIn("MatMul", [n.op_type for n in model.graph])
+        match = tracer.best_matches_map[
+            _matmul_add_to_gemm.transpose_b_matmul_add_to_gemm_rule
+        ][0]
+        self.assertEqual(match.status.value, MatchStatus.CONDITION_FAILED)
+        self.assertIn("Expected Transpose perm [1, 0], got [0, 1]", match.match_result.reason)
+
+    def test_transpose_non_int_perm_attribute_rejected(self):
+        model_text = """
+            <ir_version: 8, opset_import: ["" : 17]>
+            test (float[8, 4] a, float[8, 16] b, float[16] c) => (float[4, 16] out)
+            {
+                ta = Transpose(a)
+                mm = MatMul(ta, b)
+                out = Add(mm, c)
+            }
+        """
+        model = ir.from_onnx_text(model_text)
+        transpose_node = model.graph[0]
+        transpose_node.attributes["perm"] = ir.Attr("perm", ir.AttributeType.STRING, "invalid")
+        tracer = MatchingTracer()
+        count = _matmul_add_to_gemm.transpose_a_matmul_add_to_gemm_rule.apply_to_model(
+            model, tracer=tracer
+        )
+        self.assertEqual(count, 0)
+        self.assertIn("MatMul", [n.op_type for n in model.graph])
+        match = tracer.best_matches_map[
+            _matmul_add_to_gemm.transpose_a_matmul_add_to_gemm_rule
+        ][0]
+        self.assertEqual(match.status.value, MatchStatus.CONDITION_FAILED)
+        self.assertIn("could not be read as integers", match.match_result.reason)
+
+    def test_is_valid_2d_transpose_rejects_missing_or_non_transpose_producer(self):
+        graph_input = ir.val(
+            "a", shape=ir.Shape((8, 4)), type=ir.TensorType(ir.DataType.FLOAT)
+        )
+        valid, reason = _matmul_add_to_gemm._is_valid_2d_transpose(graph_input)
+        self.assertFalse(valid)
+        self.assertIn("Expected Transpose producer", reason)
+
+        relu_node = ir.Node("", "Relu", inputs=[graph_input])
+        valid, reason = _matmul_add_to_gemm._is_valid_2d_transpose(relu_node.outputs[0])
+        self.assertFalse(valid)
+        self.assertIn("Expected Transpose producer", reason)
 
     def test_transpose_reference_attribute_perm_rejected(self):
         model_proto = onnx.parser.parse_model(
@@ -443,13 +508,26 @@ class TransposePermValidationTest(unittest.TestCase):
         )
         onnx.checker.check_model(model_proto, full_check=True)
         model = ir.serde.deserialize_model(model_proto)
-        count = _matmul_add_to_gemm.rules.apply_to_model(model)
-        self.assertEqual(count, 0)
         function = next(iter(model.functions.values()))
+        function.inputs[0].shape = ir.Shape((8, 4))
+        function.inputs[1].shape = ir.Shape((8, 16))
+        function.inputs[2].shape = ir.Shape((16,))
+        tracer = MatchingTracer()
+        count = _matmul_add_to_gemm.rules.apply_to_model(model, tracer=tracer)
+        self.assertEqual(count, 0)
         self.assertIn("MatMul", [n.op_type for n in function])
+        match = tracer.best_matches_map[
+            _matmul_add_to_gemm.transpose_a_matmul_add_to_gemm_rule
+        ][0]
+        self.assertEqual(match.status.value, MatchStatus.CONDITION_FAILED)
+        self.assertIn("reference attribute 'perm_val'", match.match_result.reason)
 
 
 class MatMulAddCommutativeTest(unittest.TestCase):
+    @property
+    def rng(self):
+        return np.random.default_rng(20250607)
+
     def test_matmul_add_commutative_fused_to_gemm(self):
         model_text = """
             <ir_version: 8, opset_import: ["" : 17]>
@@ -464,9 +542,9 @@ class MatMulAddCommutativeTest(unittest.TestCase):
         count = _matmul_add_to_gemm.rules.apply_to_model(model)
         self.assertEqual(count, 1)
         self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
-        a_val = np.random.randn(4, 8).astype(np.float32)
-        b_val = np.random.randn(8, 16).astype(np.float32)
-        c_val = np.random.randn(16).astype(np.float32)
+        a_val = self.rng.standard_normal((4, 8)).astype(np.float32)
+        b_val = self.rng.standard_normal((8, 16)).astype(np.float32)
+        c_val = self.rng.standard_normal((16,)).astype(np.float32)
         testing.assert_numerically_equal(original, model, (a_val, b_val, c_val))
 
     def test_trans_a_matmul_add_commutative_fused_to_gemm(self):
@@ -485,9 +563,9 @@ class MatMulAddCommutativeTest(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
         self.assertEqual(model.graph[0].attributes.get_int("transA"), 1)
-        a_val = np.random.randn(8, 4).astype(np.float32)
-        b_val = np.random.randn(8, 16).astype(np.float32)
-        c_val = np.random.randn(16).astype(np.float32)
+        a_val = self.rng.standard_normal((8, 4)).astype(np.float32)
+        b_val = self.rng.standard_normal((8, 16)).astype(np.float32)
+        c_val = self.rng.standard_normal((16,)).astype(np.float32)
         testing.assert_numerically_equal(original, model, (a_val, b_val, c_val))
 
     def test_trans_b_matmul_add_commutative_fused_to_gemm(self):
@@ -506,9 +584,9 @@ class MatMulAddCommutativeTest(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
         self.assertEqual(model.graph[0].attributes.get_int("transB"), 1)
-        a_val = np.random.randn(4, 8).astype(np.float32)
-        b_val = np.random.randn(16, 8).astype(np.float32)
-        c_val = np.random.randn(16).astype(np.float32)
+        a_val = self.rng.standard_normal((4, 8)).astype(np.float32)
+        b_val = self.rng.standard_normal((16, 8)).astype(np.float32)
+        c_val = self.rng.standard_normal((16,)).astype(np.float32)
         testing.assert_numerically_equal(original, model, (a_val, b_val, c_val))
 
     def test_trans_ab_matmul_add_commutative_fused_to_gemm(self):
@@ -529,24 +607,61 @@ class MatMulAddCommutativeTest(unittest.TestCase):
         self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
         self.assertEqual(model.graph[0].attributes.get_int("transA"), 1)
         self.assertEqual(model.graph[0].attributes.get_int("transB"), 1)
-        a_val = np.random.randn(8, 4).astype(np.float32)
-        b_val = np.random.randn(16, 8).astype(np.float32)
-        c_val = np.random.randn(16).astype(np.float32)
+        a_val = self.rng.standard_normal((8, 4)).astype(np.float32)
+        b_val = self.rng.standard_normal((16, 8)).astype(np.float32)
+        c_val = self.rng.standard_normal((16,)).astype(np.float32)
         testing.assert_numerically_equal(original, model, (a_val, b_val, c_val))
 
     def test_matmul_add_dynamic_differently_named_symbolic_contracting_dims_fused(self):
         model_text = """
             <ir_version: 8, opset_import: ["" : 17]>
-            test (float[4, "K_a"] a, float["K_b", 16] b, float[16] c) => (float[4, 16] out)
+            test (float[4, K_a] a, float[K_b, 16] b, float[16] c) => (float[4, 16] out)
             {
                 mm = MatMul(a, b)
                 out = Add(mm, c)
             }
         """
+        original = ir.from_onnx_text(model_text)
         model = ir.from_onnx_text(model_text)
         count = _matmul_add_to_gemm.rules.apply_to_model(model)
         self.assertEqual(count, 1)
         self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
+        a_val = self.rng.standard_normal((4, 8)).astype(np.float32)
+        b_val = self.rng.standard_normal((8, 16)).astype(np.float32)
+        c_val = self.rng.standard_normal((16,)).astype(np.float32)
+        testing.assert_numerically_equal(original, model, (a_val, b_val, c_val))
+
+    def test_matmul_add_unknown_contracting_dims_fused(self):
+        tape = ir.tape.Tape()
+        a = ir.val("a", shape=ir.Shape((4, None)), type=ir.TensorType(ir.DataType.FLOAT))
+        b = ir.val("b", shape=ir.Shape((None, 16)), type=ir.TensorType(ir.DataType.FLOAT))
+        c = ir.val("c", shape=ir.Shape((16,)), type=ir.TensorType(ir.DataType.FLOAT))
+        mm = tape.op("MatMul", inputs=[a, b])
+        out = tape.op(
+            "Add",
+            inputs=[mm, c],
+            output=ir.val(
+                "out", shape=ir.Shape((4, 16)), type=ir.TensorType(ir.DataType.FLOAT)
+            ),
+        )
+        original = ir.Model(
+            ir.Graph(
+                inputs=[a, b, c],
+                outputs=[out],
+                nodes=tape.nodes,
+                opset_imports={"": 17},
+                name="test_unknown_k",
+            ),
+            ir_version=8,
+        )
+        model = ir.from_proto(ir.to_proto(original))
+        count = _matmul_add_to_gemm.rules.apply_to_model(model)
+        self.assertEqual(count, 1)
+        self.assertEqual([n.op_type for n in model.graph], ["Gemm"])
+        a_val = self.rng.standard_normal((4, 8)).astype(np.float32)
+        b_val = self.rng.standard_normal((8, 16)).astype(np.float32)
+        c_val = self.rng.standard_normal((16,)).astype(np.float32)
+        testing.assert_numerically_equal(original, model, (a_val, b_val, c_val))
 
     def test_matmul_add_concrete_contracting_dimension_mismatch_rejected(self):
         model_text = """
